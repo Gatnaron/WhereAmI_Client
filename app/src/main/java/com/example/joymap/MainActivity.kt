@@ -1,5 +1,7 @@
 package com.example.joymap
 
+import android.app.NotificationChannel
+import android.app.NotificationManager
 import android.content.Context
 import android.content.Intent
 import android.content.SharedPreferences
@@ -11,6 +13,7 @@ import android.widget.Spinner
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.app.NotificationCompat
 import com.example.joymap.Models.Child
 import com.example.joymap.Models.Requests.SafeZoneRequest
 import com.example.joymap.Models.SafeZone
@@ -35,6 +38,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var mapObjectCollection: MapObjectCollection
     private lateinit var parentId: String
     private lateinit var parentApiService: ParentApiService
+
+    private val childZoneStatus = mutableMapOf<String, Boolean>() // deviceId -> isInZone
 
     private var isCreatingZone = false
     private var currentZoneName = ""
@@ -415,11 +420,35 @@ class MainActivity : AppCompatActivity() {
         if (latitude != null && longitude != null) {
             val point = Point(latitude, longitude)
 
+            // Проверяем безопасные зоны
+            var isInAnyZone = false
+            for (zone in safeZones) {
+                if (isChildInSafeZone(point, zone)) {
+                    isInAnyZone = true
+                    if (childZoneStatus[child.deviceId] != true) {
+                        // Уведомление о входе
+                        sendNotification(
+                            "Ребёнок ${child.deviceId} вошёл в безопасную зону ${zone.name}"
+                        )
+                    }
+                    break
+                }
+            }
+
+            if (!isInAnyZone && childZoneStatus[child.deviceId] == true) {
+                // Уведомление о выходе
+                sendNotification(
+                    "Ребёнок ${child.deviceId} вышел из безопасной зоны"
+                )
+            }
+
+            // Обновляем статус
+            childZoneStatus[child.deviceId] = isInAnyZone
+
+            // Обновление маркера на карте
             if (childMarkers.containsKey(child.deviceId)) {
-                // Перемещение существующего маркера
                 childMarkers[child.deviceId]?.geometry = point
             } else {
-                // Использование встроенного значка Android
                 val marker = binding.mapview.map.mapObjects.addPlacemark(
                     point,
                     ImageProvider.fromResource(this, android.R.drawable.star_on)
@@ -429,6 +458,54 @@ class MainActivity : AppCompatActivity() {
         } else {
             Log.e("UpdateMarker", "Неверные координаты для ребенка: ${child.deviceId}")
         }
+    }
+
+    private fun sendNotification(message: String) {
+        val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+            val channel = NotificationChannel(
+                "ChildZoneChannel",
+                "Уведомления о безопасных зонах",
+                NotificationManager.IMPORTANCE_HIGH
+            )
+            notificationManager.createNotificationChannel(channel)
+        }
+
+        val notification = NotificationCompat.Builder(this, "ChildZoneChannel")
+            .setContentTitle("Безопасная зона")
+            .setContentText(message)
+            .setSmallIcon(R.drawable.ic_launcher_foreground) // Установите свой значок
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .build()
+
+        notificationManager.notify(System.currentTimeMillis().toInt(), notification)
+    }
+
+    private fun isChildInSafeZone(childLocation: Point, safeZone: SafeZone): Boolean {
+        val safeZoneLocation = safeZone.location.split(",")
+        if (safeZoneLocation.size != 2) return false
+
+        val safeZoneLat = safeZoneLocation[0].toDoubleOrNull() ?: return false
+        val safeZoneLon = safeZoneLocation[1].toDoubleOrNull() ?: return false
+
+        val distance = calculateDistance(childLocation, Point(safeZoneLat, safeZoneLon))
+        return distance <= safeZone.radius
+    }
+
+    // Функция для расчёта расстояния между двумя точками (в метрах)
+    private fun calculateDistance(point1: Point, point2: Point): Double {
+        val earthRadius = 6371000.0 // Радиус Земли в метрах
+
+        val dLat = Math.toRadians(point2.latitude - point1.latitude)
+        val dLon = Math.toRadians(point2.longitude - point1.longitude)
+
+        val a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+                Math.cos(Math.toRadians(point1.latitude)) * Math.cos(Math.toRadians(point2.latitude)) *
+                Math.sin(dLon / 2) * Math.sin(dLon / 2)
+
+        val c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
+        return earthRadius * c
     }
 
     override fun onStart() {
