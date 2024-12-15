@@ -43,6 +43,7 @@
             android:theme="@style/Theme.AppCompat.NoActionBar"
             android:exported="true">
         </activity>
+        <service android:name=".Services.PersistentService" android:foregroundServiceType="location"/>
     </application>
 
 

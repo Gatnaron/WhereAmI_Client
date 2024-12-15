@@ -1,10 +1,12 @@
 package com.example.joymap
 
+import android.Manifest
+import android.content.Context
 import android.app.NotificationChannel
 import android.app.NotificationManager
-import android.content.Context
 import android.content.Intent
 import android.content.SharedPreferences
+import android.content.pm.PackageManager
 import android.graphics.Color
 import android.os.Bundle
 import android.util.Log
@@ -13,11 +15,13 @@ import android.widget.Spinner
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.app.ActivityCompat
 import androidx.core.app.NotificationCompat
+import androidx.core.content.ContextCompat
 import com.example.joymap.Models.Child
 import com.example.joymap.Models.Requests.SafeZoneRequest
 import com.example.joymap.Models.SafeZone
-import com.example.joymap.Services.LocationUpdateService
+import com.example.joymap.Services.PersistentService
 import com.example.joymap.Services.ParentApiService
 import com.example.joymap.databinding.ActivityMainBinding
 import com.yandex.mapkit.Animation
@@ -59,6 +63,7 @@ class MainActivity : AppCompatActivity() {
 
     private val safeZoneMarkers = mutableListOf<com.yandex.mapkit.map.MapObject>()
 
+    private val REQUEST_NOTIFICATION_PERMISSION = 1
 
     val inputListener = object : InputListener {
         override fun onMapTap(map: com.yandex.mapkit.map.Map, point: Point) {
@@ -107,6 +112,29 @@ class MainActivity : AppCompatActivity() {
         }
 
         loadSafeZonesFromServer() // Загружаем зоны безопасности
+
+        // Запрос разрешений
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+            ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.POST_NOTIFICATIONS), REQUEST_NOTIFICATION_PERMISSION)
+        }
+
+        // Запуск PersistentService
+        if (!isServiceRunning(PersistentService::class.java)) {
+            val intent = Intent(this, PersistentService::class.java)
+            ContextCompat.startForegroundService(this, intent)
+        }
+    }
+
+    private fun isServiceRunning(serviceClass: Class<*>): Boolean {
+        val manager = getSystemService(ACTIVITY_SERVICE) as android.app.ActivityManager
+        return manager.getRunningServices(Int.MAX_VALUE).any { it.service.className == serviceClass.name }
+    }
+
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == REQUEST_NOTIFICATION_PERMISSION && grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+            // Разрешение предоставлено
+        }
     }
 
     private fun handleMapTap(point: Point) {
